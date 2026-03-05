@@ -3,7 +3,7 @@
 
 """
 Модуль для скачивания .raw файлов с сервера по временному диапазону,
-заданному CSV-файлом с метками.
+заданному CSV-файлом с метками, с возможностью коррекции часового пояса.
 
 Структура URL на сервере:
     base_url/год/YYMMDD-HH/_timestamp.13.raw
@@ -13,7 +13,8 @@
 
 Поддерживается:
 - чтение временных меток из CSV (формат: 2026-03-03T14:29:18.842930)
-- определение минимальной и максимальной метки
+- коррекция часового пояса (задаётся смещением в секундах)
+- определение минимальной и максимальной метки (после коррекции)
 - поиск всех файлов в этом диапазоне (по подпапкам YYMMDD-HH)
 - скачивание с докачкой (resume)
 - режим мониторинга новых файлов
@@ -48,17 +49,21 @@ def parse_timestamp(ts_str: str) -> int:
     raise ValueError(f"Не удалось распарсить временную метку: {ts_str}")
 
 
-def read_csv_timestamps(csv_path: str, timestamp_column: Union[int, str] = 0) -> List[int]:
+def read_csv_timestamps(csv_path: str, timestamp_column: Union[int, str] = 0,
+                        time_offset_seconds: float = 0.0) -> List[int]:
     """
     Читает CSV-файл и извлекает временные метки из указанной колонки.
+    Применяет коррекцию часового пояса (прибавляет time_offset_seconds).
     Предполагается, что первая строка — заголовок.
     
     Args:
         csv_path: путь к CSV файлу
         timestamp_column: индекс колонки (0..) или название колонки
+        time_offset_seconds: смещение, которое нужно добавить к прочитанным меткам,
+                             чтобы получить UTC (например, +10800 для UTC+3).
     
     Returns:
-        список UNIX timestamp
+        список скорректированных UNIX timestamp
     """
     timestamps = []
     with open(csv_path, 'r', encoding='utf-8') as f:
@@ -78,13 +83,15 @@ def read_csv_timestamps(csv_path: str, timestamp_column: Union[int, str] = 0) ->
                     continue
                 ts_str = row[timestamp_column].strip()
             else:
-                # если timestamp_column остался строкой (нет заголовка) – пропускаем
                 continue
 
             if not ts_str:
                 continue
             try:
-                timestamps.append(parse_timestamp(ts_str))
+                local_ts = parse_timestamp(ts_str)
+                # Применяем коррекцию
+                utc_ts = local_ts + int(round(time_offset_seconds))
+                timestamps.append(utc_ts)
             except ValueError as e:
                 print(f"Предупреждение: {e} (строка {reader.line_num})")
     return timestamps
@@ -291,19 +298,23 @@ def find_files_in_range(base_url: str, year: str, min_ts: int, max_ts: int) -> L
 
 def download_files_by_range(csv_path: str, base_url: str, year: str,
                             timestamp_column: Union[int, str] = 0,
+                            time_offset_seconds: float = 0.0,
                             download_dir: str = "downloads",
                             resume: bool = True,
                             max_files: Optional[int] = None,
                             monitor: bool = False,
                             interval: int = 60) -> List[str]:
     """
-    Главная функция: читает CSV, определяет диапазон, скачивает все подходящие файлы.
+    Главная функция: читает CSV, применяет коррекцию часового пояса,
+    определяет диапазон UTC-меток, скачивает все подходящие файлы.
 
     Args:
         csv_path: путь к CSV-файлу с временными метками
         base_url: базовый URL (например, http://example.com/data/)
         year: год (например, '2026')
         timestamp_column: колонка с метками (индекс или название)
+        time_offset_seconds: смещение, которое нужно прибавить к локальным меткам,
+                             чтобы получить UTC (например, +10800 для UTC+3)
         download_dir: папка для сохранения
         resume: использовать докачку
         max_files: максимальное количество файлов для скачивания (если None, все)
@@ -317,19 +328,19 @@ def download_files_by_range(csv_path: str, base_url: str, year: str,
     print("ЗАГРУЗКА ФАЙЛОВ ПО ДИАПАЗОНУ ИЗ CSV")
     print("=" * 70)
 
-    # 1. Чтение меток
+    # 1. Чтение меток с коррекцией
     print(f"\n[1/4] Чтение временных меток из {csv_path}...")
-    timestamps = read_csv_timestamps(csv_path, timestamp_column)
-    print(f"Прочитано {len(timestamps)} меток.")
+    timestamps = read_csv_timestamps(csv_path, timestamp_column, time_offset_seconds)
+    print(f"Прочитано {len(timestamps)} меток (после коррекции).")
     if not timestamps:
         print("Нет корректных меток. Завершение.")
         return []
 
-    # 2. Диапазон
+    # 2. Диапазон (уже в UTC)
     min_ts, max_ts = get_timestamp_range(timestamps)
     min_dt = datetime.fromtimestamp(min_ts, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
     max_dt = datetime.fromtimestamp(max_ts, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-    print(f"[2/4] Диапазон: {min_ts} - {max_ts} ({min_dt} UTC – {max_dt} UTC)")
+    print(f"[2/4] Диапазон UTC: {min_ts} - {max_ts} ({min_dt} – {max_dt})")
 
     if monitor:
         # Режим мониторинга
@@ -426,12 +437,13 @@ def _monitor_loop(base_url: str, year: str, min_ts: int, max_ts: int,
 
 # ==================== ПРИМЕР ИСПОЛЬЗОВАНИЯ ====================
 if __name__ == "__main__":
-    # Замените параметры на свои
+    # Пример с коррекцией для часового пояса UTC+3 (10800 секунд)
     downloaded = download_files_by_range(
         csv_path="log.csv",
-        base_url="http://example.com/data/",
+    base_url="http://10.163.1.148/runs/raw/",
         year="2026",
         timestamp_column="timestamp",
+        time_offset_seconds=10800,  # +3 часа
         download_dir="raw_data",
         resume=True,
         max_files=10,          # ограничение для теста
