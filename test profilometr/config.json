@@ -1,0 +1,21 @@
+{
+    "port": "/dev/ttyUSB0",
+    "baudrate": 9600,
+    "device_address": 1,
+    "register_1": 100,
+    "register_2": 101,
+    "range_1": {
+        "min": 0,
+        "max": 100,
+        "step": 10
+    },
+    "range_2": {
+        "min": 0,
+        "max": 50,
+        "step": 5
+    },
+    "delay_between_writes": 1.0,
+    "retries": 3,
+    "retry_delay": 0.5,
+    "log_file": "data/log.csv"
+}
