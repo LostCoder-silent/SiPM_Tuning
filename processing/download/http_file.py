@@ -274,7 +274,7 @@ def find_files_in_range(base_url: str, year: str, min_ts: int, max_ts: int) -> L
         return []
 
     print(f"Найдено подпапок: {len(subfolders)}. Отбор релевантных...")
-    relevant = [sf for sf in subfolders if is_subfolder_relevant(sf, min_ts, max_ts)]
+    relevant = [sf for sf in subfolders if is_subfolder_relevant(sf, min_ts+10800, max_ts+10800)]
     print(f"Релевантных подпапок: {len(relevant)}")
 
     all_files = []
@@ -443,7 +443,7 @@ if __name__ == "__main__":
     base_url="http://10.163.1.148/runs/raw/",
         year="2026",
         timestamp_column="timestamp",
-        time_offset_seconds=10800,  # +3 часа
+        time_offset_seconds=-10800,  # +3 часа
         download_dir="raw_data",
         resume=True,
         max_files=10,          # ограничение для теста
